@@ -273,7 +273,7 @@ with st.sidebar:
 
 # 2. MAIN CONTENT AREA
 if st.session_state.exam_stage == "SETUP":
-    st.title("PE Exam Simulator & Generator")
+    st.title("PE Exam Quizzes")
     st.info("""
     **Campaign Mode Active**
     1. **Upload** Excel Question Bank & History File.
