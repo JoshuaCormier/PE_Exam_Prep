@@ -127,7 +127,7 @@ if 'cumulative_answered' not in st.session_state:
     st.session_state.cumulative_answered = 0
 
 
-# --- CALLBACKS (This fixes the "Stuck Score" bug) ---
+# --- CALLBACKS ---
 def load_history_callback():
     """Run this ONLY when a new history file is uploaded."""
     uploaded = st.session_state.history_uploader
@@ -135,17 +135,14 @@ def load_history_callback():
         try:
             data = json.load(uploaded)
             if isinstance(data, list):
-                # Legacy support
                 st.session_state.used_ids.update(set(data))
                 st.toast("Loaded legacy history (Progress only).")
             elif isinstance(data, dict):
                 st.session_state.used_ids.update(set(data.get("used_ids", [])))
                 st.session_state.wrong_ids.update(set(data.get("wrong_ids", [])))
-                # We OVERWRITE the score with the file's score, assuming the file is the source of truth
                 st.session_state.cumulative_correct = data.get("correct", 0)
                 st.session_state.cumulative_answered = data.get("answered", 0)
-                st.toast(
-                    f"History Restored: {st.session_state.cumulative_correct}/{st.session_state.cumulative_answered} Correct")
+                st.toast(f"History Restored.")
         except Exception as e:
             st.error(f"Error loading history: {e}")
 
@@ -160,8 +157,6 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Upload Question Database (Excel)", type=["xlsx"])
     if uploaded_file:
         try:
-            # We check if we already loaded this file to prevent re-parsing constantly
-            # (Simple check: is the pool empty?)
             if not st.session_state.questions_pool:
                 questions = parse_excel(uploaded_file)
                 st.session_state.questions_pool = questions
@@ -169,7 +164,7 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Error parsing file: {e}")
 
-    # B. Load History (The "Save Game" File) - NOW USES CALLBACK
+    # B. Load History
     st.file_uploader(
         "Upload History File (Optional)",
         type=["json"],
@@ -177,26 +172,20 @@ with st.sidebar:
         on_change=load_history_callback
     )
 
-    # C. Performance Metrics
+    # C. Performance Metrics (Simplified)
     st.write("---")
     st.header("📊 Performance")
 
     total_bank = len(st.session_state.questions_pool)
     used_count = len(st.session_state.used_ids)
 
-    # Bank Progress
+    # Bank Progress ONLY
     st.caption("Bank Completion")
     prog_val = used_count / total_bank if total_bank > 0 else 0
     st.progress(prog_val)
     st.write(f"**{used_count} / {total_bank}** Questions Seen")
 
-    # Cumulative Score
-    st.caption("Cumulative Accuracy")
-    if st.session_state.cumulative_answered > 0:
-        acc = (st.session_state.cumulative_correct / st.session_state.cumulative_answered) * 100
-        st.write(f"**{acc:.1f}%** ({st.session_state.cumulative_correct}/{st.session_state.cumulative_answered})")
-
-    # DOWNLOAD ALL WRONG IDs (Anytime)
+    # D. Download Wrong IDs (Anytime)
     if len(st.session_state.wrong_ids) > 0:
         st.write("---")
         wrong_ids_text = "All-Time Wrong Question IDs:\n" + "\n".join(sorted(list(st.session_state.wrong_ids)))
@@ -207,7 +196,7 @@ with st.sidebar:
             mime="text/plain"
         )
 
-    # D. Exam Controls
+    # E. Exam Controls
     if st.session_state.questions_pool and st.session_state.exam_stage == "SETUP":
         st.write("---")
         st.header("2. Start Exam")
@@ -243,7 +232,7 @@ with st.sidebar:
                 st.session_state.exam_stage = "ACTIVE"
                 st.rerun()
 
-    # E. Save Progress
+    # F. Save Progress
     st.write("---")
     st.header("3. Save Progress")
     if len(st.session_state.used_ids) > 0:
@@ -259,8 +248,7 @@ with st.sidebar:
             label="💾 Download Progress File",
             data=history_json,
             file_name="PE_Exam_History.json",
-            mime="application/json",
-            help="Includes your used IDs, wrong IDs, and running score."
+            mime="application/json"
         )
 
     # Reset Button
