@@ -100,8 +100,6 @@ def generate_war_report(questions, title="Wrong Answer Roundup"):
             output += f"ID: {q.id}\n"
             output += f"Q: {q.text}\n"
             lets = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-
-            # Show Correct Answer(s)
             ans_str = ", ".join([lets[x] for x in sorted(q.correct_indices)])
             output += f"Correct Answer: {ans_str}\n"
             output += "-" * 40 + "\n"
@@ -128,6 +126,30 @@ if 'cumulative_correct' not in st.session_state:
 if 'cumulative_answered' not in st.session_state:
     st.session_state.cumulative_answered = 0
 
+
+# --- CALLBACKS (This fixes the "Stuck Score" bug) ---
+def load_history_callback():
+    """Run this ONLY when a new history file is uploaded."""
+    uploaded = st.session_state.history_uploader
+    if uploaded is not None:
+        try:
+            data = json.load(uploaded)
+            if isinstance(data, list):
+                # Legacy support
+                st.session_state.used_ids.update(set(data))
+                st.toast("Loaded legacy history (Progress only).")
+            elif isinstance(data, dict):
+                st.session_state.used_ids.update(set(data.get("used_ids", [])))
+                st.session_state.wrong_ids.update(set(data.get("wrong_ids", [])))
+                # We OVERWRITE the score with the file's score, assuming the file is the source of truth
+                st.session_state.cumulative_correct = data.get("correct", 0)
+                st.session_state.cumulative_answered = data.get("answered", 0)
+                st.toast(
+                    f"History Restored: {st.session_state.cumulative_correct}/{st.session_state.cumulative_answered} Correct")
+        except Exception as e:
+            st.error(f"Error loading history: {e}")
+
+
 # --- MAIN APP LOGIC ---
 
 # 1. SIDEBAR: Controls & Navigation
@@ -138,32 +160,22 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Upload Question Database (Excel)", type=["xlsx"])
     if uploaded_file:
         try:
-            questions = parse_excel(uploaded_file)
-            st.session_state.questions_pool = questions
-            st.success(f"Loaded {len(questions)} questions.")
+            # We check if we already loaded this file to prevent re-parsing constantly
+            # (Simple check: is the pool empty?)
+            if not st.session_state.questions_pool:
+                questions = parse_excel(uploaded_file)
+                st.session_state.questions_pool = questions
+                st.success(f"Loaded {len(questions)} questions.")
         except Exception as e:
             st.error(f"Error parsing file: {e}")
 
-    # B. Load History
-    history_file = st.file_uploader("Upload History File (Optional)", type=["json"])
-    if history_file:
-        try:
-            data = json.load(history_file)
-
-            if isinstance(data, list):
-                # Legacy support
-                st.session_state.used_ids.update(set(data))
-                st.warning("Loaded legacy history (No score/wrong ID tracking yet).")
-            elif isinstance(data, dict):
-                st.session_state.used_ids.update(set(data.get("used_ids", [])))
-                st.session_state.wrong_ids.update(set(data.get("wrong_ids", [])))
-                st.session_state.cumulative_correct = data.get("correct", 0)
-                st.session_state.cumulative_answered = data.get("answered", 0)
-                st.success(
-                    f"Restored: {len(st.session_state.used_ids)} Qs | {len(st.session_state.wrong_ids)} Wrong IDs")
-
-        except Exception as e:
-            st.error(f"Error loading history: {e}")
+    # B. Load History (The "Save Game" File) - NOW USES CALLBACK
+    st.file_uploader(
+        "Upload History File (Optional)",
+        type=["json"],
+        key="history_uploader",
+        on_change=load_history_callback
+    )
 
     # C. Performance Metrics
     st.write("---")
@@ -192,8 +204,7 @@ with st.sidebar:
             label="⚠️ Download All Wrong IDs",
             data=wrong_ids_text,
             file_name="All_Wrong_IDs.txt",
-            mime="text/plain",
-            help="Download a list of every question ID you have ever missed."
+            mime="text/plain"
         )
 
     # D. Exam Controls
@@ -273,7 +284,7 @@ with st.sidebar:
 
 # 2. MAIN CONTENT AREA
 if st.session_state.exam_stage == "SETUP":
-    st.title("PE Exam Quizzes")
+    st.title("PE Exam Simulator & Generator")
     st.info("""
     **Campaign Mode Active**
     1. **Upload** Excel Question Bank & History File.
@@ -370,9 +381,9 @@ elif st.session_state.exam_stage == "REVIEW":
             if q.is_correct():
                 s_correct += 1
             else:
-                # Add to cumulative wrong list
                 st.session_state.wrong_ids.add(q.id)
 
+        # ADD to the total, don't overwrite it
         st.session_state.cumulative_correct += s_correct
         st.session_state.cumulative_answered += s_total
 
@@ -395,8 +406,7 @@ elif st.session_state.exam_stage == "REPORT":
             label="⚠️ Download Session WAR Report",
             data=war_report,
             file_name="Session_WAR_Report.txt",
-            mime="text/plain",
-            help="Download a text file of just the questions you missed this session."
+            mime="text/plain"
         )
     else:
         st.success("Perfect Score! No WAR Report needed.")
