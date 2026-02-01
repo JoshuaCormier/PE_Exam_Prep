@@ -10,6 +10,33 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="PE Exam Simulator", page_icon="📝", layout="wide")
 
+# --- STUDY PLAN DATA (Inserted for Targeted Drills) ---
+STUDY_PLAN_DATA = {
+    "Fire Dynamics (CRITICAL)": [
+        "MF-69", "MISC-55", "MF-23", "MF-130", "MF-124", "MISC-69",
+        "MF-25", "MF-66", "MISC-78", "MF-24", "MF-163", "MF-14",
+        "MF-120", "MF-147", "MF-184", "SoPE-84", "MISC-47", "MF-17", "MF-101"
+    ],
+    "Hydraulics & Pumps": [
+        "MF-170", "MISC-43", "MF-32", "MF-44", "MF-41", "SoPE-40",
+        "MISC-53", "MISC-23", "MF-168", "MF-109", "MISC-59", "MF-36"
+    ],
+    "Special Hazards": [
+        "SoPE-48", "MF-45", "SoPE-49", "MF-131", "MISC-66", "GEN_69_292",
+        "MF-136", "MISC-57", "SoPE-64", "MISC-63", "MF-62", "SoPE-78"
+    ],
+    "Risk & Reliability": [
+        "MF-4", "MF-3", "MF-160", "MF-150", "MISC-70"
+    ],
+    "Fire Alarm & Detection": [
+        "MISC-45", "MISC-11", "MF-55", "MF-143", "MF-54", "MF-58"
+    ],
+    "Life Safety & Egress": [
+        "MF-146", "MISC-58", "MF-92", "MF-176", "SoPE-81", "MF-82",
+        "MF-77", "MF-75"
+    ]
+}
+
 
 # --- CLASS DEFINITION ---
 class Question:
@@ -201,28 +228,53 @@ with st.sidebar:
         st.write("---")
         st.header("2. Start Exam")
 
-        available_pool = [q for q in st.session_state.questions_pool if q.id not in st.session_state.used_ids]
+        # --- MODE SELECTION LOGIC ---
+        mode = st.radio("Choose Mode:", ["Standard Exam (Random 20)", "Targeted Weakness Drill"])
 
-        if len(available_pool) == 0:
-            st.warning("All questions attempted!")
-            if st.button("🔄 Reset History & Scores", type="primary"):
-                st.session_state.used_ids = set()
-                st.session_state.wrong_ids = set()
-                st.session_state.cumulative_correct = 0
-                st.session_state.cumulative_answered = 0
-                st.rerun()
-        else:
-            remaining_qs = len(available_pool)
-            btn_label = "Start New Exam Block"
-            if remaining_qs < 20:
-                st.info(f"Only {remaining_qs} questions remaining.")
-                btn_label = f"Start Final {remaining_qs} Questions"
+        target_pool = []
+        btn_label = "Start Exam"
 
+        if mode == "Standard Exam (Random 20)":
+            # Standard Logic: Filter out used questions
+            target_pool = [q for q in st.session_state.questions_pool if q.id not in st.session_state.used_ids]
+
+            if len(target_pool) == 0:
+                st.warning("All questions attempted!")
+                if st.button("🔄 Reset History & Scores", type="primary"):
+                    st.session_state.used_ids = set()
+                    st.session_state.wrong_ids = set()
+                    st.session_state.cumulative_correct = 0
+                    st.session_state.cumulative_answered = 0
+                    st.rerun()
+            else:
+                remaining_qs = len(target_pool)
+                btn_label = "Start New Standard Block"
+                if remaining_qs < 20:
+                    st.info(f"Only {remaining_qs} questions remaining.")
+                    btn_label = f"Start Final {remaining_qs} Questions"
+
+        else:  # Targeted Mode
+            focus_area = st.selectbox("Select Area to Drill:", list(STUDY_PLAN_DATA.keys()))
+            target_ids = set(STUDY_PLAN_DATA[focus_area])
+
+            # Targeted Logic: Search ENTIRE pool (even used ones) for these IDs
+            target_pool = [q for q in st.session_state.questions_pool if q.id in target_ids]
+
+            st.info(f"Found {len(target_pool)} questions for **{focus_area}**.")
+            btn_label = f"Start {focus_area} Drill"
+
+        # --- START BUTTON LOGIC ---
+        if len(target_pool) > 0:
             if st.button(btn_label, type="primary"):
-                session_size = min(20, len(available_pool))
-                st.session_state.exam_session = random.sample(available_pool, session_size)
+                # If Targeted, we take ALL found questions (up to 20 or more? Let's cap at 20 for sanity)
+                session_size = min(20, len(target_pool))
 
-                # Mark as used immediately upon start
+                # If Standard, sample random. If Targeted, also sample random from the filtered set?
+                # Yes, random sample ensures variety if the set is > 20.
+                st.session_state.exam_session = random.sample(target_pool, session_size)
+
+                # Mark as used immediately upon start (Standard Mode behavior)
+                # Note: In Targeted Mode, this doesn't hurt, but won't stop them from appearing again in Targeted Mode.
                 for q in st.session_state.exam_session:
                     st.session_state.used_ids.add(q.id)
                     q.user_selections = set()
@@ -280,6 +332,14 @@ if st.session_state.exam_stage == "SETUP":
     3. **Download Reports:** - Get a "Session Report" immediately after an exam.
        - Get an "All-Time Wrong IDs" list from the sidebar anytime.
     4. **Save Progress** before leaving.
+    """)
+
+    # Show active mode help text
+    st.markdown("### How to use Targeted Drills:")
+    st.markdown("""
+    - Select **'Targeted Weakness Drill'** in the sidebar.
+    - Choose a weakness area (e.g., *Fire Dynamics*).
+    - The system will pull specific questions identified in your Study Plan, regardless of whether you have seen them before.
     """)
 
 elif st.session_state.exam_stage == "ACTIVE":
