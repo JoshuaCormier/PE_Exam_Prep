@@ -12,10 +12,8 @@ st.set_page_config(page_title="PE Exam Simulator", page_icon="📝", layout="wid
 
 # --- STUDY PLAN DATA (Inserted for Targeted Drills) ---
 STUDY_PLAN_DATA = {
-    "Fire Dynamics (CRITICAL)": [
-        "MF-69", "MISC-55", "MF-23", "MF-130", "MF-124", "MISC-69",
-        "MF-25", "MF-66", "MISC-78", "MF-24", "MF-163", "MF-14",
-        "MF-120", "MF-147", "MF-184", "SoPE-84", "MISC-47", "MF-17", "MF-101"
+    "Fire Dynamics": [
+        "MF-69", "MF-124", "MF-25", "MF-66", "MF-163", "MF-14",
     ],
     "Hydraulics & Pumps": [
         "MF-170", "MISC-43", "MF-32", "MF-44", "MF-41", "SoPE-40",
