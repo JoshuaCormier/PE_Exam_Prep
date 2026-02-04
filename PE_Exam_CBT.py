@@ -10,31 +10,6 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 # --- PAGE CONFIGURATION ---
 st.set_page_config(page_title="PE Exam Simulator", page_icon="📝", layout="wide")
 
-# --- STUDY PLAN DATA (Inserted for Targeted Drills) ---
-STUDY_PLAN_DATA = {
-    "Fire Dynamics": [
-        "MF-69", "MF-124", "MF-25", "MF-66", "MF-163", "MF-14",
-    ],
-    "Hydraulics & Pumps": [
-        "MF-170", "MISC-43", "MF-32", "MF-44", "MF-41", "SoPE-40",
-        "MISC-53", "MISC-23", "MF-168", "MF-109", "MISC-59", "MF-36"
-    ],
-    "Special Hazards": [
-        "SoPE-48", "MF-45", "SoPE-49", "MF-131", "MISC-66", "GEN_69_292",
-        "MF-136", "MISC-57", "SoPE-64", "MISC-63", "MF-62", "SoPE-78"
-    ],
-    "Risk & Reliability": [
-        "MF-4", "MF-3", "MF-160", "MF-150", "MISC-70"
-    ],
-    "Fire Alarm & Detection": [
-        "MISC-45", "MISC-11", "MF-55", "MF-143", "MF-54", "MF-58"
-    ],
-    "Life Safety & Egress": [
-        "MF-146", "MISC-58", "MF-92", "MF-176", "SoPE-81", "MF-82",
-        "MF-77", "MF-75"
-    ]
-}
-
 
 # --- CLASS DEFINITION ---
 class Question:
@@ -64,10 +39,12 @@ def parse_excel(uploaded_file):
             if not row[0].value: continue
             txt = str(row[0].value)
 
+            # Attempt to extract ID from text like "Question Text (MF-69)"
             qid_match = re.search(r'\(([\w-]+)\)\s*$', txt)
             if qid_match:
                 qid = qid_match.group(1)
             else:
+                # Fallback generator if no ID found
                 qid = f"GEN_{row_idx}_{random.randint(100, 999)}"
 
             opts = []
@@ -226,53 +203,28 @@ with st.sidebar:
         st.write("---")
         st.header("2. Start Exam")
 
-        # --- MODE SELECTION LOGIC ---
-        mode = st.radio("Choose Mode:", ["Standard Exam (Random 20)", "Targeted Weakness Drill"])
+        available_pool = [q for q in st.session_state.questions_pool if q.id not in st.session_state.used_ids]
 
-        target_pool = []
-        btn_label = "Start Exam"
+        if len(available_pool) == 0:
+            st.warning("All questions attempted!")
+            if st.button("🔄 Reset History & Scores", type="primary"):
+                st.session_state.used_ids = set()
+                st.session_state.wrong_ids = set()
+                st.session_state.cumulative_correct = 0
+                st.session_state.cumulative_answered = 0
+                st.rerun()
+        else:
+            remaining_qs = len(available_pool)
+            btn_label = "Start New Exam Block"
+            if remaining_qs < 20:
+                st.info(f"Only {remaining_qs} questions remaining.")
+                btn_label = f"Start Final {remaining_qs} Questions"
 
-        if mode == "Standard Exam (Random 20)":
-            # Standard Logic: Filter out used questions
-            target_pool = [q for q in st.session_state.questions_pool if q.id not in st.session_state.used_ids]
-
-            if len(target_pool) == 0:
-                st.warning("All questions attempted!")
-                if st.button("🔄 Reset History & Scores", type="primary"):
-                    st.session_state.used_ids = set()
-                    st.session_state.wrong_ids = set()
-                    st.session_state.cumulative_correct = 0
-                    st.session_state.cumulative_answered = 0
-                    st.rerun()
-            else:
-                remaining_qs = len(target_pool)
-                btn_label = "Start New Standard Block"
-                if remaining_qs < 20:
-                    st.info(f"Only {remaining_qs} questions remaining.")
-                    btn_label = f"Start Final {remaining_qs} Questions"
-
-        else:  # Targeted Mode
-            focus_area = st.selectbox("Select Area to Drill:", list(STUDY_PLAN_DATA.keys()))
-            target_ids = set(STUDY_PLAN_DATA[focus_area])
-
-            # Targeted Logic: Search ENTIRE pool (even used ones) for these IDs
-            target_pool = [q for q in st.session_state.questions_pool if q.id in target_ids]
-
-            st.info(f"Found {len(target_pool)} questions for **{focus_area}**.")
-            btn_label = f"Start {focus_area} Drill"
-
-        # --- START BUTTON LOGIC ---
-        if len(target_pool) > 0:
             if st.button(btn_label, type="primary"):
-                # If Targeted, we take ALL found questions (up to 20 or more? Let's cap at 20 for sanity)
-                session_size = min(20, len(target_pool))
+                session_size = min(20, len(available_pool))
+                st.session_state.exam_session = random.sample(available_pool, session_size)
 
-                # If Standard, sample random. If Targeted, also sample random from the filtered set?
-                # Yes, random sample ensures variety if the set is > 20.
-                st.session_state.exam_session = random.sample(target_pool, session_size)
-
-                # Mark as used immediately upon start (Standard Mode behavior)
-                # Note: In Targeted Mode, this doesn't hurt, but won't stop them from appearing again in Targeted Mode.
+                # Mark as used immediately upon start
                 for q in st.session_state.exam_session:
                     st.session_state.used_ids.add(q.id)
                     q.user_selections = set()
@@ -332,74 +284,73 @@ if st.session_state.exam_stage == "SETUP":
     4. **Save Progress** before leaving.
     """)
 
-    # Show active mode help text
-    st.markdown("### How to use Targeted Drills:")
-    st.markdown("""
-    - Select **'Targeted Weakness Drill'** in the sidebar.
-    - Choose a weakness area (e.g., *Fire Dynamics*).
-    - The system will pull specific questions identified in your Study Plan, regardless of whether you have seen them before.
-    """)
-
 elif st.session_state.exam_stage == "ACTIVE":
     q_idx = st.session_state.current_index
-    q = st.session_state.exam_session[q_idx]
-    total_q = len(st.session_state.exam_session)
-
-    col1, col2, col3 = st.columns([1, 4, 1])
-    with col1:
-        st.caption(f"Question {q_idx + 1} / {total_q}")
-    with col3:
-        flag_label = "🚩 Flagged" if q.flagged else "🏳️ Flag"
-        if st.button(flag_label):
-            q.flagged = not q.flagged
+    # Safety Check: If session is somehow empty, return to setup
+    if not st.session_state.exam_session:
+        st.error("Session Error: No questions loaded.")
+        if st.button("Return to Menu"):
+            st.session_state.exam_stage = "SETUP"
             st.rerun()
-
-    st.progress((q_idx + 1) / total_q)
-    st.subheader(q.text)
-
-    is_multi = len(q.correct_indices) > 1
-    if is_multi:
-        st.info("Select all that apply.")
-        for i, opt in enumerate(q.options):
-            checked = i in q.user_selections
-            if st.checkbox(opt, value=checked, key=f"q{q_idx}_opt{i}"):
-                q.user_selections.add(i)
-            else:
-                q.user_selections.discard(i)
     else:
-        current_selection = list(q.user_selections)[0] if q.user_selections else None
-        idx_val = current_selection if current_selection is not None else 0
-        selected_option = st.radio(
-            "Select one:",
-            q.options,
-            index=idx_val if current_selection is not None else None,
-            key=f"q{q_idx}_radio"
-        )
-        if selected_option:
-            sel_index = q.options.index(selected_option)
-            q.user_selections = {sel_index}
+        q = st.session_state.exam_session[q_idx]
+        total_q = len(st.session_state.exam_session)
 
-    st.write("---")
+        col1, col2, col3 = st.columns([1, 4, 1])
+        with col1:
+            st.caption(f"Question {q_idx + 1} / {total_q}")
+        with col3:
+            flag_label = "🚩 Flagged" if q.flagged else "🏳️ Flag"
+            if st.button(flag_label):
+                q.flagged = not q.flagged
+                st.rerun()
 
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        if q_idx > 0:
-            if st.button("<< Previous"):
-                st.session_state.current_index -= 1
-                st.rerun()
-    with c2:
-        if st.button("Review All Questions"):
-            st.session_state.exam_stage = "REVIEW"
-            st.rerun()
-    with c3:
-        if q_idx < total_q - 1:
-            if st.button("Next >>"):
-                st.session_state.current_index += 1
-                st.rerun()
+        st.progress((q_idx + 1) / total_q)
+        st.subheader(q.text)
+
+        is_multi = len(q.correct_indices) > 1
+        if is_multi:
+            st.info("Select all that apply.")
+            for i, opt in enumerate(q.options):
+                checked = i in q.user_selections
+                if st.checkbox(opt, value=checked, key=f"q{q_idx}_opt{i}"):
+                    q.user_selections.add(i)
+                else:
+                    q.user_selections.discard(i)
         else:
-            if st.button("Go to Review"):
+            current_selection = list(q.user_selections)[0] if q.user_selections else None
+            idx_val = current_selection if current_selection is not None else 0
+            selected_option = st.radio(
+                "Select one:",
+                q.options,
+                index=idx_val if current_selection is not None else None,
+                key=f"q{q_idx}_radio"
+            )
+            if selected_option:
+                sel_index = q.options.index(selected_option)
+                q.user_selections = {sel_index}
+
+        st.write("---")
+
+        c1, c2, c3 = st.columns([1, 1, 1])
+        with c1:
+            if q_idx > 0:
+                if st.button("<< Previous"):
+                    st.session_state.current_index -= 1
+                    st.rerun()
+        with c2:
+            if st.button("Review All Questions"):
                 st.session_state.exam_stage = "REVIEW"
                 st.rerun()
+        with c3:
+            if q_idx < total_q - 1:
+                if st.button("Next >>"):
+                    st.session_state.current_index += 1
+                    st.rerun()
+            else:
+                if st.button("Go to Review"):
+                    st.session_state.exam_stage = "REVIEW"
+                    st.rerun()
 
 elif st.session_state.exam_stage == "REVIEW":
     st.title("Review Your Answers")
